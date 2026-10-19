@@ -26,13 +26,26 @@ class Generation:
 
 
 def codex_uses_openai(args: list[str]) -> bool:
-    if os.environ.get("OPENAI_BASE_URL") or {"--oss", "--local-provider", "-p", "--profile"} & set(args):
+    if os.environ.get("OPENAI_BASE_URL") or any(a.startswith(("-p", "--profile", "--oss", "--local-provider")) for a in args):
         return False
     for i, arg in enumerate(args):
-        value = args[i + 1] if arg in ("-c", "--config") and i + 1 < len(args) else arg.removeprefix("--config=")
-        key, _, provider = value.partition("=")
-        if key.strip() == "model_provider" and provider.strip().strip("'\"") != "openai":
+        if arg in ("-c", "--config"):
+            value = args[i + 1] if i + 1 < len(args) else ""
+        elif arg.startswith("--config="):
+            value = arg.removeprefix("--config=")
+        elif arg.startswith("-c") and not arg.startswith("--"):
+            value = arg[2:]
+        else:
+            continue
+        key, _, raw = value.partition("=")
+        if key.strip() == "profile":
             return False
+        if key.strip() == "model_provider":
+            try:
+                if tomllib.loads(f"v = {raw}")["v"] != "openai":
+                    return False
+            except tomllib.TOMLDecodeError:
+                return False
     path = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser() / "config.toml"
     try:
         cfg = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
