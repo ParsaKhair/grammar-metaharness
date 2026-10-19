@@ -1,1 +1,17 @@
 AGENTS.local.md
+
+# Secrets / local overrides — never commit
+.env
+config.local.toml
+*.local.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
