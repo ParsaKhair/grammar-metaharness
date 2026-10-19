@@ -1,0 +1,11 @@
+name: grammar
+transport: stdio
+description: >-
+  Dispatch Claude Code or Codex as headless subagents whose final answer must
+  match a named output constraint (JSON Schema or regex) from config.toml.
+  Results report valid, errors, and how the constraint was enforced.
+command: uv
+args: ["run", "--project", "/path/to/grammar-metaharness", "grammar-mcp"]
+env:
+  GRAMMAR_METAHARNESS_CONFIG: /path/to/grammar-metaharness/config.toml
+timeout: 1800

@@ -1,0 +1,65 @@
+[defaults]
+timeout = 900
+
+[backends.claude_code]
+args = []
+
+[backends.codex]
+args = []
+
+[constraints.review_verdict]
+type = "json_schema"
+description = "Code review verdict with blocking issues and a one-line summary"
+schema = '''
+{
+  "type": "object",
+  "properties": {
+    "verdict": {"type": "string", "enum": ["approve", "request_changes"]},
+    "blocking_issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "file": {"type": "string"},
+          "line": {"type": "integer"},
+          "issue": {"type": "string"}
+        },
+        "required": ["file", "line", "issue"],
+        "additionalProperties": false
+      }
+    },
+    "summary": {"type": "string"}
+  },
+  "required": ["verdict", "blocking_issues", "summary"],
+  "additionalProperties": false
+}
+'''
+
+[constraints.file_list]
+type = "json_schema"
+description = "List of repository-relative file paths relevant to a question"
+schema = '''
+{
+  "type": "object",
+  "properties": {
+    "files": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["files"],
+  "additionalProperties": false
+}
+'''
+
+[constraints.yes_no]
+type = "regex"
+description = "A single lowercase yes or no"
+pattern = "yes|no"
+
+[constraints.semver]
+type = "regex"
+description = "A semantic version such as 1.4.0"
+pattern = '(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)'
+
+[constraints.conventional_commit]
+type = "regex"
+description = "A single-line Conventional Commits subject"
+pattern = '(feat|fix|docs|refactor|test|chore|perf|build|ci)(\([a-z0-9-]+\))?!?: [^\n]{1,72}'
