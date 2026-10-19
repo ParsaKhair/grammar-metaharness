@@ -1,7 +1,10 @@
 import asyncio
+import contextlib
 import json
 import os
+import signal
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -22,7 +25,24 @@ class Generation:
     error: str | None = None
 
 
-def enforcement(backend: str, constraint: Constraint) -> dict:
+def codex_uses_openai(args: list[str]) -> bool:
+    if os.environ.get("OPENAI_BASE_URL") or {"--oss", "--local-provider", "-p", "--profile"} & set(args):
+        return False
+    for i, arg in enumerate(args):
+        value = args[i + 1] if arg in ("-c", "--config") and i + 1 < len(args) else arg.removeprefix("--config=")
+        key, _, provider = value.partition("=")
+        if key.strip() == "model_provider" and provider.strip().strip("'\"") != "openai":
+            return False
+    path = Path(os.environ.get("CODEX_HOME", "~/.codex")).expanduser() / "config.toml"
+    try:
+        cfg = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    profile = cfg.get("profiles", {}).get(cfg.get("profile"), {}) if cfg.get("profile") else {}
+    return profile.get("model_provider", cfg.get("model_provider", "openai")) == "openai"
+
+
+def enforcement(backend: str, constraint: Constraint, args: list[str] | None = None) -> dict:
     if backend == "mock":
         return {
             "level": "post_validation_only",
@@ -37,6 +57,17 @@ def enforcement(backend: str, constraint: Constraint) -> dict:
             "mechanism": "format instruction in prompt + post-hoc re.fullmatch",
             "post_validated": True,
             "note": POST_ONLY_NOTE,
+        }
+    if backend == "codex" and not codex_uses_openai(args or []):
+        return {
+            "level": "provider_structured_output",
+            "token_level_guarantee": False,
+            "mechanism": "codex exec --output-schema",
+            "post_validated": True,
+            "note": (
+                "Codex is configured for a non-default model provider or endpoint, so OpenAI strict "
+                "constrained decoding cannot be assumed. The schema is still passed to the provider."
+            ),
         }
     if backend == "codex":
         result = {
@@ -106,6 +137,14 @@ def compose(prompt: str, constraint: Constraint, feedback: list[str] | None) -> 
     return "\n\n".join(parts)
 
 
+async def stop(proc) -> None:
+    for sig, grace in ((signal.SIGTERM, 3), (signal.SIGKILL, 5)):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, sig)
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(proc.wait(), grace)
+
+
 async def execute(cmd: list[str], stdin: str, cwd: str, timeout: float) -> tuple[int, str, str]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -113,12 +152,12 @@ async def execute(cmd: list[str], stdin: str, cwd: str, timeout: float) -> tuple
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
         out, err = await asyncio.wait_for(proc.communicate(stdin.encode()), timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.wait()
+    except BaseException:
+        await asyncio.shield(stop(proc))
         raise
     return proc.returncode, out.decode(errors="replace"), err.decode(errors="replace")
 

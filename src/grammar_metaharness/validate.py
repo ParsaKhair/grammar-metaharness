@@ -6,20 +6,22 @@ from jsonschema import Draft202012Validator, SchemaError
 from .config import Constraint
 
 
-def check_schema(schema: dict) -> list[str]:
+def check_constraint(constraint: Constraint) -> list[str]:
     try:
-        Draft202012Validator.check_schema(schema)
+        if constraint.type == "regex":
+            re.compile(constraint.pattern)
+        else:
+            Draft202012Validator.check_schema(constraint.schema)
     except SchemaError as exc:
-        return [f"invalid JSON Schema: {exc.message}"]
+        return [f"constraint {constraint.name!r}: invalid JSON Schema: {exc.message}"]
+    except re.error as exc:
+        return [f"constraint {constraint.name!r}: invalid regex: {exc}"]
     return []
 
 
 def validate(constraint: Constraint, output: str, parsed=None) -> tuple[bool, list[str], object]:
     if constraint.type == "regex":
-        try:
-            matched = re.fullmatch(constraint.pattern, output.strip()) is not None
-        except re.error as exc:
-            return False, [f"invalid regex: {exc}"], None
+        matched = re.fullmatch(constraint.pattern, output) is not None
         return matched, [] if matched else [f"output does not fully match regex {constraint.pattern!r}"], None
     if parsed is None:
         try:
